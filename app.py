@@ -46,7 +46,7 @@ def save_data(df):
         st.error(f"Chyba pri ukladaní: {e}")
         return False
 
-# --- VÝPOČET MINÚT A TRIEDENIE (S TVOJÍM PRAVIDLOM) ---
+# --- VÝPOČET MINÚT A TRIEDENIE ---
 def process_dataframe(df):
     if df.empty:
         return df
@@ -63,6 +63,7 @@ def process_dataframe(df):
         vals = group['Hodnota'].astype(int)
         has_high = (vals >= 900).any()
         has_low = (vals <= 100).any()
+        # Ak máme prechod cez 1000 (napr. 980 -> 010), hodnoty pod 500 berieme ako 1000+
         if has_high and has_low:
             group['SortValue'] = group['Hodnota'].apply(lambda x: int(x) + 1000 if int(x) < 500 else int(x))
         else:
@@ -79,9 +80,10 @@ def process_dataframe(df):
         processed_days.append(day_df)
     
     full_df = pd.concat(processed_days)
-    # Triedenie pre výpočet minút (vzostupne)
+    # Triedenie vzostupne pre korektný výpočet rozdielov minút
     full_df = full_df.sort_values(['Date', 'SortValue'])
     
+    # Výpočet rozdielu minút (v - predchádzajúca hodnota)
     vals = full_df['Hodnota'].astype(int).tolist()
     minutes = []
     prev_val = None
@@ -90,7 +92,7 @@ def process_dataframe(df):
             minutes.append(0)
         else:
             diff = v - prev_val
-            if diff < -500: diff += 1000
+            if diff < -500: diff += 1000 # Ošetrenie prechodu cez 1000
             minutes.append(diff)
         prev_val = v
         
@@ -124,6 +126,7 @@ def save_record_callback():
     
     current_df = load_data()
     updated_df = pd.concat([current_df, pd.DataFrame([new_row])], ignore_index=True)
+    # Prepočítame celú históriu s novým záznamom
     final_df = process_dataframe(updated_df)
     
     if save_data(final_df.drop(columns=['SortValue'])):
@@ -167,14 +170,14 @@ if 'action_msg' in st.session_state:
 
 st.divider()
 
-# --- HISTÓRIA (NAJNOVŠIE HORE PODĽA SortValue) ---
+# --- HISTÓRIA (NAJNOVŠIE HORE) ---
 st.header("História")
 hist_datum = st.date_input("Dátum histórie", date.today(), key="historia_datum")
 
 if not full_df_display.empty:
     df_day = full_df_display[full_df_display['Date'] == hist_datum].copy()
     if not df_day.empty:
-        # Triedenie: Najnovšie záznamy dňa podľa SortValue (tvoje pravidlo) idú hore
+        # ZORADENIE: Najnovšie (podľa tvojho pravidla) úplne hore
         df_day = df_day.sort_values('SortValue', ascending=False)
         
         edited_df = st.data_editor(
@@ -183,6 +186,7 @@ if not full_df_display.empty:
             column_config={
                 "ID": None, 
                 "Minúty": st.column_config.NumberColumn("Min (auto)", disabled=True), 
+                "Hodnota": st.column_config.TextColumn("Hodnota", width="small")
             },
             key="main_editor"
         )
@@ -198,18 +202,16 @@ if not full_df_display.empty:
                 st.success("Zmeny uložené!")
                 st.rerun()
     else:
-        st.info("Žiadne záznamy.")
+        st.info("Na tento deň nie sú žiadne záznamy.")
 
 # --- SÚHRN (MESIAC + CELKOVO) ---
 st.divider()
 st.header("Súhrn minút")
 if not full_df_display.empty:
     today = date.today()
-    # Celkový súčet
     total_sum = full_df_display.groupby('Meno')['Minúty'].sum().reset_index()
     total_sum.columns = ['Meno', 'Celkovo']
     
-    # Mesačný súčet
     full_df_display['dt'] = pd.to_datetime(full_df_display['Date'])
     month_df = full_df_display[(full_df_display['dt'].dt.month == today.month) & (full_df_display['dt'].dt.year == today.year)]
     month_sum = month_df.groupby('Meno')['Minúty'].sum().reset_index()
@@ -219,17 +221,18 @@ if not full_df_display.empty:
     summary.iloc[:, 1:] = summary.iloc[:, 1:].astype(int)
     st.dataframe(summary.sort_values('Celkovo', ascending=False), hide_index=True, use_container_width=True)
 
-# --- FILTROVANÝ SÚHRN ---
+# --- FILTROVANÝ SÚHRN (APRÍL - OKTÓBER) ---
 st.divider()
 st.header("Súhrn podľa výberu mesiacov")
-mesiace_map = {"Jan":1,"Feb":2,"Mar":3,"Apr":4,"Máj":5,"Jún":6,"Júl":7,"Aug":8,"Sep":9,"Okt":10,"Nov":11,"Dec":12}
-vybrane = st.pills("Vyber mesiace:", options=list(mesiace_map.keys()), selection_mode="multi")
+# Iba sezónne mesiace
+sezona_map = {"Apríl":4, "Máj":5, "Jún":6, "Júl":7, "August":8, "September":9, "Október":10}
+vybrane = st.pills("Vyber mesiace sezóny:", options=list(sezona_map.keys()), selection_mode="multi")
 
 if vybrane and not full_df_display.empty:
-    mes_cisla = [mesiace_map[m] for m in vybrane]
+    mes_cisla = [sezona_map[m] for m in vybrane]
     filt_df = full_df_display[pd.to_datetime(full_df_display['Date']).dt.month.isin(mes_cisla)]
     if not filt_df.empty:
         res = filt_df.groupby('Meno')['Minúty'].sum().reset_index().sort_values('Minúty', ascending=False)
         st.dataframe(res, hide_index=True, use_container_width=True)
     else:
-        st.info("Žiadne záznamy pre tieto mesiace.")
+        st.info("Žiadne záznamy pre vybrané mesiace.")
