@@ -31,33 +31,31 @@ def load_names_from_file():
 
 def load_data():
     try:
-        # Načítanie dát z Google Tabuľky (ttl=0 vynúti čerstvé dáta)
+        # PRIDANÉ: worksheet="Sheet1" - uisti sa, že sa tvoj list dole v Exceli volá Sheet1
+        # PRIDANÉ: ttl=0 - povie Streamlitu: "Zabudni, čo si vedel, a stiahni to teraz znova"
         df = conn.read(worksheet="Sheet1", ttl=0)
+        
         if df is None or df.empty:
             return pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Minúty", "Tankovanie"])
         
-        # Očista od úplne prázdnych riadkov
+        # Očista od prázdnych riadkov
         df = df.dropna(how='all')
         
-        # Prevod dátumu a hodnôt
+        # DÔLEŽITÉ: Streamlit niekedy načíta stĺpce s inými menami, ak je tabuľka divne naformátovaná
+        # Tu vynútime správne typy
         df['Date'] = pd.to_datetime(df['Date']).dt.date
         df['Hodnota'] = df['Hodnota'].astype(str).str.strip()
-        
-        # Ošetrenie stĺpca Minúty
-        if 'Minúty' in df.columns:
-            df['Minúty'] = pd.to_numeric(df['Minúty'], errors='coerce').fillna(0).astype(int)
-        else:
-            df['Minúty'] = 0
-            
         return df
     except Exception as e:
         return pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Minúty", "Tankovanie"])
 
 def save_data(df):
     try:
-        # Uloženie celého listu do Google Sheets
-        conn.update(worksheet="Sheet1", data=df)
+        # PRIDANÉ: clear_cache - vymaže internú pamäť Streamlitu pred zápisom
         st.cache_data.clear()
+        
+        # worksheet="Sheet1" musí byť aj tu
+        conn.update(worksheet="Sheet1", data=df)
         return True
     except Exception as e:
         st.error(f"Chyba pri ukladaní: {e}")
