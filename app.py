@@ -181,51 +181,45 @@ st.header("História")
 hist_datum = st.date_input("Dátum histórie", date.today(), key="historia_datum")
 
 if not full_df_display.empty:
-    # Vyberieme záznamy pre konkrétny deň na editáciu
     df_day = full_df_display[full_df_display['Date'] == hist_datum].copy()
-    
     if not df_day.empty:
         df_day['Zmazať'] = False
-        
+        # DATA EDITOR umožňuje meniť Hodnotu, Meno aj Tankovanie
         edited_df = st.data_editor(
             df_day[['ID', 'Meno', 'Hodnota', 'Minúty', 'Tankovanie', 'Zmazať']],
-            hide_index=True, 
-            use_container_width=True,
+            hide_index=True, use_container_width=True,
             column_config={
-                "ID": None, # ID skryjeme
+                "ID": None, 
                 "Minúty": st.column_config.NumberColumn("Min (auto)", disabled=True), 
+                "Hodnota": st.column_config.TextColumn("Hodnota (3 cifry)"),
                 "Zmazať": st.column_config.CheckboxColumn("Zmazať 🗑️")
             },
             key="main_editor"
         )
         
-        if st.button("Uložiť zmeny v histórii", use_container_width=True):
-            # 1. Získame ID riadkov, ktoré používateľ označil na zmazanie
-            ids_to_delete = edited_df[edited_df['Zmazať'] == True]['ID'].tolist()
+        if st.button("Uložiť zmeny v histórii"):
+            # 1. Identifikujeme ID riadkov na zmazanie
+            ids_to_remove = edited_df[edited_df['Zmazať'] == True]['ID'].tolist()
             
-            # 2. Získame upravené dáta z editora (tie, ktoré sa nemajú zmazať)
-            df_edited_clean = edited_df[edited_df['Zmazať'] == False].copy()
+            # 2. Vezmeme pôvodné raw_df a nahradíme v ňom zmenené riadky z editora
+            # Najprv odstránime tie, čo idú preč
+            temp_df = raw_df[~raw_df['ID'].isin(ids_to_remove)].copy()
             
-            # 3. Zoberieme CELÚ tabuľku (všetky dni) a odstránime z nej 
-            # pôvodné verzie riadkov pre tento deň + tie na zmazanie
-            # Týmto krokom zabezpečíme, že ostatné dni ostanú nedotknuté
-            ostatne_dni = full_df_display[full_df_display['Date'] != hist_datum]
+            # Potom aktualizujeme hodnoty tých, ktoré zostali (ak ich používateľ v editore zmenil)
+            # Pre jednoduchosť: vezmeme všetko z editora (čo nie je na zmazanie) a spojíme s ostatnými dňami
+            df_others = raw_df[(raw_df['Date'] != hist_datum) & (~raw_df['ID'].isin(ids_to_remove))]
+            df_updated_day = edited_df[edited_df['Zmazať'] == False][['ID', 'Meno', 'Hodnota', 'Tankovanie']]
+            df_updated_day['Date'] = hist_datum
             
-            # 4. Spojíme ostatné dni s tými, ktoré sme práve upravili v editore
-            # Pridáme dátum späť k upraveným riadkom, lebo v editore sme ho nezobrazovali
-            df_edited_clean['Date'] = hist_datum
+            final_master = pd.concat([df_others, df_updated_day], ignore_index=True)
             
-            # Spojíme to do jednej master tabuľky
-            new_master = pd.concat([ostatne_dni, df_edited_clean], ignore_index=True)
-            
-            # 5. Pre istotu preženieme cez process_dataframe (prepočet minút) a uložíme
-            final_to_save = process_dataframe(new_master)
-            
-            if save_data(final_to_save):
-                st.success("Zmeny boli úspešne uložené!")
+            # 3. Prepočítame minúty a uložíme
+            final_master = process_dataframe(final_master)
+            if save_data(final_master):
+                st.success("Zmeny boli uložené a minúty prepočítané!")
                 st.rerun()
     else:
-        st.info(f"Na deň {hist_datum} nie sú žiadne záznamy.")
+        st.info("Na tento deň nie sú žiadne záznamy.")
 
 # --- SEKCIA 3: SÚHRNY (Vždy prepočítané) ---
 st.divider()
