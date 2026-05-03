@@ -1,46 +1,45 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-import os
 import uuid
+from streamlit_gsheets import GSheetsConnection
 
 # --- NASTAVENIA STRÁNKY ---
 st.set_page_config(page_title="Minúty 2026", layout="centered")
 
-# --- SÚBORY ---
-NAMES_FILE = "Zoznam_mien.txt"
-DATA_FILE = "data.csv"
-
-# Inicializácia súborov
-if not os.path.exists(NAMES_FILE):
-    with open(NAMES_FILE, "w", encoding="utf-8") as f:
-        f.write("Jozef\nMichal\n")
-
-if not os.path.exists(DATA_FILE):
-    df_init = pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Tankovanie"])
-    df_init.to_csv(DATA_FILE, index=False)
+# --- PRIPOJENIE NA GOOGLE SHEETS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- POMOCNÉ FUNKCIE ---
-def load_names():
-    if not os.path.exists(NAMES_FILE): return ["Jozef", "Michal"]
-    with open(NAMES_FILE, "r", encoding="utf-8") as f:
-        return sorted([line.strip() for line in f.readlines() if line.strip()])
-
-def save_name(new_name):
-    with open(NAMES_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{new_name}\n")
+def load_names(df):
+    # Aby mená nemizli (keďže .txt na Cloude zmizne), ťaháme ich priamo z tabuľky + základné
+    zakladne_mena = ["Jozef", "Michal"]
+    if df.empty:
+        return zakladne_mena
+    existujuce_mena = df['Meno'].unique().tolist()
+    return sorted(list(set(zakladne_mena + existujuce_mena)))
 
 def load_data():
-    if not os.path.exists(DATA_FILE):
-        return pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Tankovanie"])
-    df = pd.read_csv(DATA_FILE)
-    df['Date'] = pd.to_datetime(df['Date']).dt.date
-    df['Hodnota'] = df['Hodnota'].astype(str).str.zfill(3)
-    return df
+    try:
+        # Načítanie dát z Google Tabuľky (ttl=0 vynúti čerstvé dáta)
+        df = conn.read(ttl=0)
+        if df.empty:
+            return pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Minúty", "Tankovanie"])
+        
+        df['Date'] = pd.to_datetime(df['Date']).dt.date
+        df['Hodnota'] = df['Hodnota'].astype(str).str.zfill(3)
+        # Ošetrenie stĺpca Minúty, ak by bol prázdny
+        if 'Minúty' in df.columns:
+            df['Minúty'] = pd.to_numeric(df['Minúty'], errors='coerce').fillna(0).astype(int)
+        else:
+            df['Minúty'] = 0
+        return df
+    except:
+        return pd.DataFrame(columns=["ID", "ID", "Date", "Meno", "Hodnota", "Minúty", "Tankovanie"])
 
 def save_data(df):
-    df['Hodnota'] = df['Hodnota'].astype(str).str.zfill(3)
-    df.to_csv(DATA_FILE, index=False)
+    # Uloženie celého listu do Google Sheets
+    conn.update(data=df)
 
 # --- VÝPOČET MINÚT A TRIEDENIE ---
 def process_dataframe(df):
@@ -80,7 +79,8 @@ def process_dataframe(df):
         prev_val = v
         
     full_df['Minúty'] = minutes
-    return full_df.sort_values(['Date', 'SortValue'], ascending=[False, False])
+    # Pre potreby ukladania vrátime pôvodné poradie alebo zoradené, GSheets prepisujeme celé
+    return full_df
 
 # --- CALLBACK PRE ULOŽENIE ---
 def save_record_callback():
@@ -96,10 +96,6 @@ def save_record_callback():
         st.session_state.action_msg = ("error", "Zadaj číselnú hodnotu!")
         return
     
-    names = load_names()
-    if pridat_nove and meno_na_zapis not in names:
-        save_name(meno_na_zapis)
-        
     tank = []
     if st.session_state.get('input_t20', False): tank.append("20 L")
     if st.session_state.get('input_t40', False): tank.append("40 L")
@@ -113,8 +109,11 @@ def save_record_callback():
     }
     
     current_df = load_data()
+    # Pridáme nový riadok a prepočítame minúty pre celú tabuľku pred uložením
     updated_df = pd.concat([current_df, pd.DataFrame([new_row])], ignore_index=True)
-    save_data(updated_df)
+    final_df = process_dataframe(updated_df)
+    
+    save_data(final_df)
     
     # RESET
     st.session_state.input_hodnota = ""
@@ -123,42 +122,25 @@ def save_record_callback():
     st.session_state.input_t40 = False
     if 'input_nove_meno' in st.session_state:
         st.session_state.input_nove_meno = ""
-    st.session_state.action_msg = ("success", "Záznam uložený!")
+    st.session_state.action_msg = ("success", "Záznam uložený do Google Sheets! ✅")
 
 # --- HLAVNÁ APP ---
 st.title("Minúty 2026 🏄")
 
 raw_df = load_data()
-full_df_with_minutes = process_dataframe(raw_df)
+# Pre zobrazenie v appke zoradíme najnovšie hore
+full_df_display = process_dataframe(raw_df).sort_values(['Date', 'Hodnota'], ascending=[False, False])
 
-# --- BOČNÝ PANEL (EXPORT & IMPORT) ---
+# --- BOČNÝ PANEL ---
 st.sidebar.header("Správa dát")
 
-# EXPORT
-if not full_df_with_minutes.empty:
-    export_df = full_df_with_minutes.copy().sort_values(['Date', 'SortValue'])
-    export_df = export_df[['Date', 'Meno', 'Hodnota', 'Minúty', 'Tankovanie']]
-    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
-    st.sidebar.download_button("📥 Stiahnuť report (CSV)", data=csv_data, file_name=f"report_{date.today()}.csv", mime="text/csv")
+# EXPORT (stále zachovaný pre tvoju potrebu)
+if not raw_df.empty:
+    csv_data = full_df_display.to_csv(index=False).encode('utf-8-sig')
+    st.sidebar.download_button("📥 Stiahnuť zálohu (CSV)", data=csv_data, file_name=f"zaloha_{date.today()}.csv", mime="text/csv")
 
 st.sidebar.divider()
-
-# IMPORT
-uploaded_file = st.sidebar.file_uploader("Nahrať záložné CSV", type="csv")
-if uploaded_file is not None:
-    if st.sidebar.button("⚠️ Obnoviť dáta zo súboru"):
-        try:
-            imported_df = pd.read_csv(uploaded_file)
-            if "ID" not in imported_df.columns:
-                imported_df["ID"] = [str(uuid.uuid4()) for _ in range(len(imported_df))]
-            if "Tankovanie" not in imported_df.columns:
-                imported_df["Tankovanie"] = "-"
-            
-            save_data(imported_df[["ID", "Date", "Meno", "Hodnota", "Tankovanie"]])
-            st.sidebar.success("Hotovo!")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Chyba: {e}")
+st.sidebar.info("Dáta sú automaticky synchronizované s Google Sheets. ☁️")
 
 # --- SEKCIA 1: PRIDAŤ ---
 st.header("+ Pridať lyžiara")
@@ -168,7 +150,7 @@ with col1:
 pridat_nove = st.checkbox("+ Pridaj meno", key="pridat_nove_checkbox")
 
 with col2:
-    st.selectbox("Meno:", options=load_names(), disabled=pridat_nove, key="vybrane_meno_selectbox")
+    st.selectbox("Meno:", options=load_names(raw_df), disabled=pridat_nove, key="vybrane_meno_selectbox")
 
 if pridat_nove:
     st.text_input("Zadaj nové meno:", key="input_nove_meno")
@@ -192,22 +174,27 @@ st.divider()
 st.header("História")
 hist_datum = st.date_input("Dátum histórie", date.today(), key="historia_datum")
 
-if not full_df_with_minutes.empty:
-    df_display = full_df_with_minutes[full_df_with_minutes['Date'] == hist_datum].copy()
-    if not df_display.empty:
-        df_display['Zmazať'] = False
+if not raw_df.empty:
+    df_day = full_df_display[full_df_display['Date'] == hist_datum].copy()
+    if not df_day.empty:
+        df_day['Zmazať'] = False
         edited_df = st.data_editor(
-            df_display[['ID', 'Meno', 'Hodnota', 'Minúty', 'Tankovanie', 'Zmazať']],
+            df_day[['ID', 'Meno', 'Hodnota', 'Minúty', 'Tankovanie', 'Zmazať']],
             hide_index=True, use_container_width=True,
-            column_config={"ID": None, "Minúty": st.column_config.NumberColumn(disabled=True), "Zmazať": st.column_config.CheckboxColumn("Zmazať")},
+            column_config={
+                "ID": None, 
+                "Minúty": st.column_config.NumberColumn(disabled=True), 
+                "Zmazať": st.column_config.CheckboxColumn("Zmazať")
+            },
             key="main_editor"
         )
         if st.button("Uložiť zmeny v tabuľke"):
-            to_keep = edited_df[edited_df['Zmazať'] == False][['ID', 'Meno', 'Hodnota', 'Tankovanie']]
-            master_df = load_data()
-            master_df = master_df[~master_df['ID'].isin(df_display['ID'])]
-            to_keep['Date'] = hist_datum
-            save_data(pd.concat([master_df, to_keep], ignore_index=True))
+            ids_to_remove = edited_df[edited_df['Zmazať'] == True]['ID'].tolist()
+            # Necháme len tie, ktoré neboli označené na zmazanie
+            new_master = raw_df[~raw_df['ID'].isin(ids_to_remove)]
+            # Prepočítame minúty po zmazaní
+            final_master = process_dataframe(new_master)
+            save_data(final_master)
             st.rerun()
     else: st.info("Žiadne záznamy.")
 
@@ -215,32 +202,33 @@ if not full_df_with_minutes.empty:
 st.divider()
 st.header("Súhrn minút")
 
-if not full_df_with_minutes.empty:
+if not raw_df.empty:
     # 1. Výpočet CELKOVÉHO súhrnu
-    celkovy_sum = full_df_with_minutes.groupby('Meno')['Minúty'].sum().reset_index()
+    celkovy_sum = raw_df.groupby('Meno')['Minúty'].sum().reset_index()
     celkovy_sum = celkovy_sum.rename(columns={'Minúty': 'Celkovo (min)'})
 
     # 2. Výpočet súhrnu za AKTUÁLNY MESIAC
     today = date.today()
-    mask_mesiac = (full_df_with_minutes['Date'].apply(lambda x: x.month == today.month)) & \
-                  (full_df_with_minutes['Date'].apply(lambda x: x.year == today.year))
+    mask_mesiac = (raw_df['Date'].apply(lambda x: x.month == today.month)) & \
+                  (raw_df['Date'].apply(lambda x: x.year == today.year))
     
-    mesacny_df = full_df_with_minutes[mask_mesiac]
-    mesacny_sum = mesacny_df.groupby('Meno')['Minúty'].sum().reset_index()
-    mesacny_sum = mesacny_sum.rename(columns={'Minúty': 'Tento mesiac (min)'})
+    mesacny_df = raw_df[mask_mesiac]
+    if not mesacny_df.empty:
+        mesacny_sum = mesacny_df.groupby('Meno')['Minúty'].sum().reset_index()
+        mesacny_sum = mesacny_sum.rename(columns={'Minúty': 'Tento mesiac (min)'})
+        finalny_suhrn = pd.merge(celkovy_sum, mesacny_sum, on='Meno', how='left').fillna(0)
+    else:
+        celkovy_sum['Tento mesiac (min)'] = 0
+        finalny_suhrn = celkovy_sum
 
-    # 3. Spojenie tabuliek a zoradenie
-    finalny_suhrn = pd.merge(celkovy_sum, mesacny_sum, on='Meno', how='left').fillna(0)
     finalny_suhrn['Tento mesiac (min)'] = finalny_suhrn['Tento mesiac (min)'].astype(int)
-    
-    # Zoradenie od najvyššieho po najnižšie (podľa celkových minút)
     finalny_suhrn = finalny_suhrn.sort_values(by='Celkovo (min)', ascending=False)
 
     st.dataframe(finalny_suhrn, hide_index=True, use_container_width=True)
 else:
     st.info("Zatiaľ nie sú k dispozícii žiadne dáta pre súhrn.")
 
-# --- SEKCIA 4: FILTROVANÝ SÚHRN (KRAJŠÍ DIZAJN) ---
+# --- SEKCIA 4: FILTROVANÝ SÚHRN ---
 st.divider()
 st.header("Súhrn podľa mesiacov")
 
@@ -249,34 +237,22 @@ mesiace_map = {
     "August": 8, "September": 9, "Október": 10
 }
 
-# 1. Možnosť: Moderné "Pills" (tlačidlá)
-# Ak chceš, aby boli na začiatku všetky vypnuté, zmeň selection_mode na "single" alebo nechaj prázdny výber
 vybrane_názvy = st.pills(
     "Vyber mesiace (klikni pre aktiváciu):",
     options=list(mesiace_map.keys()),
     selection_mode="multi"
 )
 
-# Ak tvoj Streamlit vyhodí chybu pri st.pills, použi tento zakomentovaný kód nižšie (checkboxy v stĺpcoch):
-# st.write("Vyber mesiace:")
-# cols = st.columns(len(mesiace_map))
-# vybrane_názvy = []
-# for i, (m_name, m_num) in enumerate(mesiace_map.items()):
-#     if cols[i].checkbox(m_name):
-#         vybrane_názvy.append(m_name)
-
-if not full_df_with_minutes.empty and vybrane_názvy:
+if not raw_df.empty and vybrane_názvy:
     vybrane_cisla = [mesiace_map[m] for m in vybrane_názvy]
-    
-    mask_custom = full_df_with_minutes['Date'].apply(lambda x: x.month in vybrane_cisla)
-    filtered_df = full_df_with_minutes[mask_custom]
+    mask_custom = raw_df['Date'].apply(lambda x: x.month in vybrane_cisla)
+    filtered_df = raw_df[mask_custom]
     
     if not filtered_df.empty:
         custom_sum = filtered_df.groupby('Meno')['Minúty'].sum().reset_index()
         custom_sum.columns = ['Meno', 'Suma minút']
         custom_sum = custom_sum.sort_values(by='Suma minút', ascending=False)
         
-        # Zobrazenie výsledku v peknom formáte
         st.subheader(f"Štatistika za: {', '.join(vybrane_názvy)}")
         st.dataframe(custom_sum, hide_index=True, use_container_width=True)
     else:
