@@ -41,19 +41,29 @@ def save_data(df):
     # Uloženie celého listu do Google Sheets
     conn.update(data=df)
 
-# --- VÝPOČET MINÚT A TRIEDENIE ---
+# --- VÝPOČET MINÚT A TRIEDENIE (OPRAVENÁ VERZIA) ---
 def process_dataframe(df):
     if df.empty:
         return df
     
+    # 1. Očista dát: Odstránime riadky, kde 'Hodnota' nie je číslo alebo je prázdna
+    # Odstráni riadky, ktoré sú úplne prázdne
+    df = df.dropna(subset=['Hodnota'])
+    # Prekonvertuje na string, odstráni medzery a nechá len tie, čo sú číselné
+    df = df[df['Hodnota'].astype(str).str.strip().str.isdigit()]
+    
+    if df.empty:
+        return df
+
     def prep_sort(group):
+        # Tu už máme istotu, že sú to čísla
         vals = group['Hodnota'].astype(int)
         has_high = (vals >= 900).any()
         has_low = (vals <= 100).any()
         if has_high and has_low:
             group['SortValue'] = group['Hodnota'].apply(lambda x: int(x) + 1000 if int(x) < 500 else int(x))
         else:
-            group['SortValue'] = vals
+            group['SortValue'] = vals.values
         return group
 
     processed_days = []
@@ -66,6 +76,7 @@ def process_dataframe(df):
     full_df = pd.concat(processed_days)
     full_df = full_df.sort_values(['Date', 'SortValue'])
     
+    # Výpočet minút
     vals = full_df['Hodnota'].astype(int).tolist()
     minutes = []
     prev_val = None
@@ -79,7 +90,6 @@ def process_dataframe(df):
         prev_val = v
         
     full_df['Minúty'] = minutes
-    # Pre potreby ukladania vrátime pôvodné poradie alebo zoradené, GSheets prepisujeme celé
     return full_df
 
 # --- CALLBACK PRE ULOŽENIE ---
