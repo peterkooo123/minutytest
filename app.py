@@ -18,9 +18,19 @@ NAMES_FILE = f"{BUCKET}/Zoznam_mien.txt"
 DATA_FILE = f"{BUCKET}/data.csv"
 
 # Inicializácia súborov na S3
+# --- INICIALIZÁCIA SÚBORU S MENAMI ---
 if not fs.exists(NAMES_FILE):
     with fs.open(NAMES_FILE, "w", encoding="utf-8") as f:
-        f.write("Jozef\nMichal\n")
+        m_list = [
+            "Peťo", "Zuzka", "Maťo O.", "Ester", "Sofia", "Sarah", "Lea H.", 
+            "Milena", "Marína", "Olivka", "Lívia Bač.", "Julka", "Lívia Bal.", 
+            "Zojka", "Matti", "Mathias", "Matija", "Adam", "Radko", "Jessica", 
+            "Praženka M.", "--Vyber lyžiara--", "Zahrev", "Slalom", "Oprava", 
+            "Majko", "Maros", "Preteky", "Urbanek T.", "HappyMove", "Dejczo T.", 
+            "Laura", "STAT", "Dino Cup", "Klara", "Mia", "Lea M."
+        ]
+        # Zapíšeme každé meno na nový riadok
+        f.write("\n".join(m_list))
 
 if not fs.exists(DATA_FILE):
     df_init = pd.DataFrame(columns=["ID", "Date", "Meno", "Hodnota", "Tankovanie"])
