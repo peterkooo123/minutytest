@@ -39,12 +39,31 @@ if not fs.exists(DATA_FILE):
 
 # --- POMOCNÉ FUNKCIE (Upravené pre S3) ---
 def load_names():
+    # Tvoj kompletný zoznam mien pre prípad, že súbor neexistuje alebo nastane chyba
+    default_names = [
+        "--Vyber lyžiara--", "Peťo", "Zuzka", "Maťo O.", "Ester", "Sofia", "Sarah", 
+        "Lea H.", "Milena", "Marína", "Olivka", "Lívia Bač.", "Julka", "Lívia Bal.", 
+        "Zojka", "Matti", "Mathias", "Matija", "Adam", "Radko", "Jessica", 
+        "Praženka M.", "Zahrev", "Slalom", "Oprava", "Majko", "Maros", "Preteky", 
+        "Urbanek T.", "HappyMove", "Dejczo T.", "Laura", "STAT", "Dino Cup", 
+        "Klara", "Mia", "Lea M."
+    ]
+    
     try:
-        if not fs.exists(NAMES_FILE): return ["Jozef", "Michal"]
+        if not fs.exists(NAMES_FILE):
+            return default_names
+        
         with fs.open(NAMES_FILE, "r", encoding="utf-8") as f:
-            return sorted([line.strip() for line in f.readlines() if line.strip()])
+            all_names = [line.strip() for line in f.readlines() if line.strip()]
+            
+            # Ak je v zozname "Vyber lyžiara", dajme ho na začiatok a zvyšok zoraďme
+            if "--Vyber lyžiara--" in all_names:
+                all_names.remove("--Vyber lyžiara--")
+                return ["--Vyber lyžiara--"] + sorted(all_names)
+            return sorted(all_names)
     except:
-        return ["Jozef", "Michal"]
+        # Ak S3 zlyhá, vráť aspoň základný zoznam
+        return default_names
 
 def save_name(new_name):
     names = load_names()
