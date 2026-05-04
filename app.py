@@ -8,15 +8,24 @@ import s3fs  # Potrebné pre prácu s S3
 # --- NASTAVENIA STRÁNKY ---
 st.set_page_config(page_title="Minúty 2026", layout="centered")
 
-# --- NASTAVENIE S3 PREPOJENIA ---
-fs = s3fs.S3FileSystem(
-    key=st.secrets["s3"]["access_key_id"],
-    secret=st.secrets["s3"]["secret_access_key"]
-)
-BUCKET = st.secrets["s3"]["bucket_name"]
+@st.cache_resource
+def get_fs():
+    # Táto funkcia vytvorí stabilné spojenie s AWS, ktoré "nezamrzne"
+    return s3fs.S3FileSystem(
+        key=st.secrets["s3"]["access_key_id"].strip(),
+        secret=st.secrets["s3"]["secret_access_key"].strip(),
+        client_kwargs={
+            'region_name': st.secrets["s3"]["region"].strip()
+        }
+    )
+
+# Inicializácia spojenia cez cache
+fs = get_fs()
+
+# Nastavenie ciest k súborom
+BUCKET = st.secrets["s3"]["bucket_name"].strip()
 NAMES_FILE = f"{BUCKET}/Zoznam_mien.txt"
 DATA_FILE = f"{BUCKET}/data.csv"
-
 # Inicializácia súborov na S3
 # --- INICIALIZÁCIA SÚBORU S MENAMI ---
 if not fs.exists(NAMES_FILE):
