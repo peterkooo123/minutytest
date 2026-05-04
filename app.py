@@ -181,7 +181,7 @@ def save_record_callback():
     st.session_state.action_msg = ("success", "Záznam uložený!")
 
 # --- HLAVNÁ APP ---
-st.title("Minúty 2026 🏄")
+st.title("Minúty 2026 🏄🏄")
 
 raw_df = load_data()
 full_df_with_minutes = process_dataframe(raw_df)
