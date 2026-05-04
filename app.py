@@ -178,7 +178,7 @@ raw_df = load_data()
 full_df_with_minutes = process_dataframe(raw_df)
 
 # --- BOČNÝ PANEL ---
-st.sidebar.header("Správa dát")
+st.sidebar.header("Správa dát, AWS")
 
 if not full_df_with_minutes.empty:
     export_df = full_df_with_minutes.copy().sort_values(['Date', 'SortValue'])
