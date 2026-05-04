@@ -4,16 +4,6 @@ from datetime import date
 import uuid
 import s3fs  # Potrebné pre prácu s S3
 
-# TEST PRIPOJENIA (Vlož toto na začiatok app.py)
-try:
-    test_fs = s3fs.S3FileSystem(
-        key=st.secrets["s3"]["access_key_id"].strip(),
-        secret=st.secrets["s3"]["secret_access_key"].strip()
-    )
-    st.write("DEBUG: Pripojenie k S3 úspešné!")
-    st.write("DEBUG: Obsah bucketu:", test_fs.ls(st.secrets["s3"]["bucket_name"]))
-except Exception as e:
-    st.error(f"DEBUG CHYBA: {e}")
 
 # --- NASTAVENIA STRÁNKY ---
 st.set_page_config(page_title="Minúty 2026", layout="centered")
