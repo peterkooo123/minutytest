@@ -10,10 +10,10 @@ st.set_page_config(page_title="Minúty 2026", layout="centered")
 
 @st.cache_resource
 def get_fs():
-    # Táto funkcia vytvorí stabilné spojenie s AWS, ktoré "nezamrzne"
     return s3fs.S3FileSystem(
         key=st.secrets["s3"]["access_key_id"].strip(),
         secret=st.secrets["s3"]["secret_access_key"].strip(),
+        use_ssl=True,
         client_kwargs={
             'region_name': st.secrets["s3"]["region"].strip()
         }
